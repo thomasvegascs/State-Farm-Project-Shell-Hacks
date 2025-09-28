@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Home Insurance Defense — Level 1</title>
+<title>Policy Hero — Level 1</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet"/>
 <style>
   html,body{margin:0;height:100%;background:#0e0f12}
@@ -79,30 +79,30 @@ const Audio = (()=> {
    Generated textures
 ========================= */
 function makeGeneratedTextures(scene){
-  // Player
+  // Player frames
   const mkP = (l=0,r=0)=>{
     const g = scene.add.graphics();
-    g.fillStyle(0x3b4252,1).fillRect(3,0,8,2);
-    g.fillStyle(0xeceff4,1).fillRect(4,2,6,5);
-    g.fillStyle(0xd24d57,1).fillRect(2,7,10,6);
-    g.fillStyle(0x88c0d0,1).fillRect(4,13,6,2);
-    g.fillStyle(0x6b4c2e,1).fillRect(3,15,8,8);
+    g.fillStyle(0x3b4252,1).fillRect(3,0,8,2);            // hair
+    g.fillStyle(0xeceff4,1).fillRect(4,2,6,5);            // face
+    g.fillStyle(0xd24d57,1).fillRect(2,7,10,6);           // red shirt
+    g.fillStyle(0x88c0d0,1).fillRect(4,13,6,2);           // belt line
+    g.fillStyle(0x6b4c2e,1).fillRect(3,15,8,8);           // pants
     if (l) g.fillRect(1,16,6,7);
     if (r) g.fillRect(7,16,6,7);
-    g.fillStyle(0x8b5a2b,1).fillRect(2,23,4,3).fillRect(8,23,4,3);
+    g.fillStyle(0x8b5a2b,1).fillRect(2,23,4,3).fillRect(8,23,4,3); // shoes
     scene.add.renderTexture(0,0,14,28).draw(g,0,0).saveTexture(l?'p1':r?'p2':'p0');
   };
   mkP(0,0); mkP(1,0); mkP(0,1);
 
-  // Enemy (striped)
+  // Enemy burglar (striped)
   const e = scene.add.graphics();
   e.fillStyle(0x1a1c22,1).fillRect(0,0,18,22);
   for (let y=4;y<=18;y+=4) e.fillStyle(0xffffff,1).fillRect(0,y,18,2);
-  e.fillStyle(0x000000,1).fillRect(2,6,14,4);
-  e.fillStyle(0xeceff4,1).fillRect(4,7,3,2).fillRect(11,7,3,2);
+  e.fillStyle(0x000000,1).fillRect(2,6,14,4);            // mask band
+  e.fillStyle(0xeceff4,1).fillRect(4,7,3,2).fillRect(11,7,3,2); // eyes
   scene.add.renderTexture(0,0,18,22).draw(e,0,0).saveTexture('enemy'); e.destroy();
 
-  // Bullet / muzzle / shadow
+  // Bullet + muzzle flash + shadow
   const b=scene.add.graphics(); b.fillStyle(0xebcb8b,1).fillRect(0,0,6,2);
   scene.add.renderTexture(0,0,6,2).draw(b,0,0).saveTexture('bullet'); b.destroy();
   const mf=scene.add.graphics(); mf.fillStyle(0xfff2a8,1).fillRect(0,0,3,3); mf.fillStyle(0xffdd66,1).fillRect(1,-1,1,5).fillRect(-1,1,5,1);
@@ -141,6 +141,15 @@ function makeGeneratedTextures(scene){
   ch.fillStyle(0xd08770,1).fillRect(0,0,42,40).lineStyle(2,0x2e3440,1).strokeRect(0,0,42,40);
   ch.fillStyle(0xeacb8b,1).fillRect(20,18,2,6);
   scene.add.renderTexture(0,0,42,40).draw(ch,0,0).saveTexture('chest'); ch.destroy();
+}
+
+/* =========================
+   Utilities
+========================= */
+function lerpColorInt(c1,c2,t){
+  const a=Phaser.Display.Color.IntegerToColor(c1), b=Phaser.Display.Color.IntegerToColor(c2);
+  const c=Phaser.Display.Color.Interpolate.ColorWithColor(a,b,100,Math.floor(t*100));
+  return Phaser.Display.Color.GetColor(c.r,c.g,c.b);
 }
 
 /* =========================
@@ -266,7 +275,7 @@ const QUIZ = [
   { q:"Do policies always cover damage from normal wear and tear?", ans:false },
   { q:"Can Additional Living Expense help pay for temporary housing?", ans:true }
 ];
-function shuffled(arr){ const a=[...arr]; for(let i=a.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [a[i],a[i=j]]=[a[i=j],a[i]]; } return a; } // tiny shuffle in-place
+function shuffled(arr){ const a=[...arr]; for(let i=a.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [a[i],a[j]]=[a[j],a[i]]; } return a; }
 
 /* =========================
    Tasks (with hold-to-lock)
@@ -355,7 +364,7 @@ const Combat = {
     if(list.length){
       const filter = leftWin ? e=>e.x<p.x : e=>e.x>p.x;
       const cands=list.filter(filter);
-      if(cands.length) target=cands.reduce((a,b)=> (Math.abs(b.x-p.x)<Math.abs(a.x-p.x)?b:a));
+      if(cands.length) target=cands.reduce((a,b)=> (Math.abs(b.x-p.x)<Math.abs(a.x-px)?b:a));
     }
 
     const spd=Config.BULLET_SPEED; let vx,vy;
@@ -384,16 +393,7 @@ const Effects = {
 };
 
 /* =========================
-   Utils
-========================= */
-function lerpColorInt(c1,c2,t){
-  const a=Phaser.Display.Color.IntegerToColor(c1), b=Phaser.Display.Color.IntegerToColor(c2);
-  const c=Phaser.Display.Color.Interpolate.ColorWithColor(a,b,100,Math.floor(t*100));
-  return Phaser.Display.Color.GetColor(c.r,c.g,c.b);
-}
-
-/* =========================
-   House + live props
+   World (sky/ground/house/stairs/props)
 ========================= */
 let stoveFlameTween=null, stoveFlame=null, raygunPickup=null, sparkleTimer=null;
 
@@ -433,7 +433,7 @@ function drawHouse(scene){
   for(let y=Config.HOUSE_Y+14;y<Config.HOUSE_Y+Config.HOUSE_H;y+=22) for(let x=Config.HOUSE_X+12;x<Config.HOUSE_X+Config.HOUSE_W-12;x+=28) g.fillRect(x,y,6,2);
   g.lineStyle(2,0x2e3440,1).lineBetween(Config.HOUSE_X,Config.UPPER_FLOOR_Y,Config.HOUSE_X+Config.HOUSE_W,Config.UPPER_FLOOR_Y);
 
-  // --- STAIRWELL (wide wooden with dark well) ---
+  // STAIRWELL (wide wooden with dark well)
   const wellW = Math.min(96, ZONES.STAIRS.w - 8);
   const wellX = ZONES.STAIRS.left + (ZONES.STAIRS.w - wellW)/2;
   const wellY = Config.UPPER_FLOOR_Y;
@@ -492,7 +492,7 @@ function createRaygunPickup(scene){
 function hideRaygunPickup(){ if(sparkleTimer){sparkleTimer.remove();sparkleTimer=null;} if(raygunPickup){raygunPickup.destroy();raygunPickup=null;} }
 
 /* =========================
-   Game + quiz flow
+   Game singleton (state + flow)
 ========================= */
 const Game = {
   scene:null, state:STATES.REST, restMode:'intro',
@@ -503,64 +503,57 @@ const Game = {
   quizPool: shuffled(QUIZ), currentQuiz:null, quizShownAt:0,
   QUIZ_LOCK_MS: 3000,
 
-  start(){
-    const scene=new Phaser.Scene('Game'); this.scene=scene;
+  create(scene){
+    this.scene = scene;
+    scene.cameras.main.setBackgroundColor(Config.COLORS.bg);
+    makeGeneratedTextures(scene);
+    drawHouse(scene);
 
-    scene.create = () => {
-      scene.cameras.main.setBackgroundColor(Config.COLORS.bg);
-      makeGeneratedTextures(scene);
-      drawHouse(scene);
+    this.player=Entities.makePlayer(scene);
+    this.playerShadow=scene.add.image(this.player.x,this.player.y+16,'shadow').setDepth(0.5);
+    this.bullets=scene.physics.add.group(); this.enemies=scene.physics.add.group();
+    scene.physics.add.overlap(this.bullets,this.enemies,(b,e)=>{ b.destroy(); e.hp -= (1*this.bulletDmgMult); if(e.hp<=0) e.destroy(); });
 
-      this.player=Entities.makePlayer(scene);
-      this.playerShadow=scene.add.image(this.player.x,this.player.y+16,'shadow').setDepth(0.5);
-      this.bullets=scene.physics.add.group(); this.enemies=scene.physics.add.group();
-      scene.physics.add.overlap(this.bullets,this.enemies,(b,e)=>{ b.destroy(); e.hp -= (1*this.bulletDmgMult); if(e.hp<=0) e.destroy(); });
+    this.cursors=scene.input.keyboard.createCursorKeys();
+    this.keyA=scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+    this.keyS=scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
 
-      this.cursors=scene.input.keyboard.createCursorKeys();
-      this.keyA=scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
-      this.keyS=scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+    this.keyA.on('down', ()=>{
+      if(this.state===STATES.PREP) Tasks.begin(scene,this.player);
+      else if(this.state===STATES.PLAY) Combat.shoot(scene);
+      else if(this.state===STATES.REST) this.answerQuiz(true);
+    });
+    this.keyS.on('down', ()=>{ if(this.state===STATES.REST) this.answerQuiz(false); });
+    this.keyA.on('up', ()=>{ if(this.state===STATES.PREP) Tasks.cancelHold(); });
 
-      this.keyA.on('down', ()=>{
-        if(this.state===STATES.PREP) Tasks.begin(scene,this.player);
-        else if(this.state===STATES.PLAY) Combat.shoot(scene);
-        else if(this.state===STATES.REST) this.answerQuiz(true);
+    scene.input.keyboard.on('keydown-R', ()=> scene.scene.restart());
+
+    UI.init(scene); UI.setTasksText(Tasks.text());
+    this.startRest('intro');
+  },
+
+  update(time,delta){
+    if(this.state===STATES.OVER || this.state===STATES.COMPLETE) return;
+    const p=this.player, c=this.cursors; p.body.setVelocity(0);
+    const speed = Config.PLAYER_SPEED * this.playerSpeedMult;
+    if(c.left.isDown){ p.body.setVelocityX(-speed); p.setFlipX(true); }
+    else if(c.right.isDown){ p.body.setVelocityX(speed); p.setFlipX(false); }
+    p.x=Math.max(PLAYER_MIN_X,Math.min(PLAYER_MAX_X,p.x));
+    if(p.body.velocity.x!==0) p.anims.play('walk',true); else { p.anims.stop(); p.setTexture('p0'); }
+    const near=Math.abs(p.x-(ZONES.STAIRS.left+ZONES.STAIRS.w/2))<=ZONES.STAIRS.w/2;
+    if(near){ if(c.up.isDown) p.y=FLOOR_Y.upper-14; else if(c.down.isDown) p.y=FLOOR_Y.ground-14; }
+    if(this.playerShadow){ this.playerShadow.x=p.x; this.playerShadow.y=(p.y===FLOOR_Y.upper-14)?(FLOOR_Y.upper+2):(FLOOR_Y.ground+2); }
+
+    if(this.state===STATES.PREP) Tasks.tick(this.scene,this.player);
+
+    if(this.state===STATES.PLAY){
+      this.enemies.getChildren().forEach(e=>{
+        const tx=e.side==='left'?Config.HOUSE_X:Config.HOUSE_X+Config.HOUSE_W, dir=Math.sign(tx-e.x);
+        if(Math.abs(e.x-tx)<4){
+          if(!e._tick || time - e._tick > 800){ const dmg=(e.hp>=3?3:2); Audio.damage(); this.damageHouse(dmg); e._tick=time; }
+        } else { e.x += dir * e.speed * (delta/1000); }
       });
-      this.keyS.on('down', ()=>{ if(this.state===STATES.REST) this.answerQuiz(false); });
-
-      this.keyA.on('up', ()=>{ if(this.state===STATES.PREP) Tasks.cancelHold(); });
-      scene.input.keyboard.on('keydown-R', ()=> scene.scene.restart());
-
-      UI.init(scene); UI.setTasksText(Tasks.text());
-      this.startRest('intro');
-    };
-
-    scene.update = (time,delta) => {
-      if(this.state===STATES.OVER || this.state===STATES.COMPLETE) return;
-      const p=this.player, c=this.cursors; p.body.setVelocity(0);
-      const speed = Config.PLAYER_SPEED * this.playerSpeedMult;
-      if(c.left.isDown){ p.body.setVelocityX(-speed); p.setFlipX(true); }
-      else if(c.right.isDown){ p.body.setVelocityX(speed); p.setFlipX(false); }
-      p.x=Math.max(PLAYER_MIN_X,Math.min(PLAYER_MAX_X,p.x));
-      if(p.body.velocity.x!==0) p.anims.play('walk',true); else { p.anims.stop(); p.setTexture('p0'); }
-      const near=Math.abs(p.x-(ZONES.STAIRS.left+ZONES.STAIRS.w/2))<=ZONES.STAIRS.w/2;
-      if(near){ if(c.up.isDown) p.y=FLOOR_Y.upper-14; else if(c.down.isDown) p.y=FLOOR_Y.ground-14; }
-
-      if(this.playerShadow){ this.playerShadow.x=p.x; this.playerShadow.y=(p.y===FLOOR_Y.upper-14)?(FLOOR_Y.upper+2):(FLOOR_Y.ground+2); }
-
-      if(this.state===STATES.PREP) Tasks.tick(this.scene,this.player);
-
-      if(this.state===STATES.PLAY){
-        this.enemies.getChildren().forEach(e=>{
-          const tx=e.side==='left'?Config.HOUSE_X:Config.HOUSE_X+Config.HOUSE_W, dir=Math.sign(tx-e.x);
-          if(Math.abs(e.x-tx)<4){
-            if(!e._tick || time - e._tick > 800){ const dmg=(e.hp>=3?3:2); Audio.damage(); this.damageHouse(dmg); e._tick=time; }
-          } else { e.x += dir * e.speed * (delta/1000); }
-        });
-      }
-    };
-
-    new Phaser.Game({ type:Phaser.AUTO, parent:'game', width:Config.WIDTH, height:Config.HEIGHT, pixelArt:true,
-      physics:{ default:'arcade', arcade:{ gravity:{y:0}, debug:false } }, scene });
+    }
   },
 
   setCountdown(t,s,d){ UI.setCountdown(t,s,d); },
@@ -628,15 +621,18 @@ const Game = {
     this.state=STATES.PLAY; Audio.wave(); Waves.start(this.scene);
   },
 
-  // >>> NEW: Educational end slide in State Farm red, 10s before replay prompt
   endLevelText(scene){
-    const RED = 0xE2231A; // State Farm bright red
+    const RED = 0xE2231A;
     const overlay = scene.add.graphics({ x: 0, y: 0 }).setDepth(999);
     overlay.fillStyle(RED, 1).fillRect(0, 0, Config.WIDTH, Config.HEIGHT);
 
+    const titleShadow = scene.add.text(
+      Config.WIDTH/2+2, 90+2, 'Insurance has you covered',
+      { fontFamily:'"Press Start 2P", monospace', fontSize:'20px', color:'#000000', align:'center' }
+    ).setOrigin(0.5).setDepth(1000).setAlpha(0.35);
+
     const title = scene.add.text(
-      Config.WIDTH/2, 88,
-      'Insurance has you covered',
+      Config.WIDTH/2, 90, 'Insurance has you covered',
       { fontFamily:'"Press Start 2P", monospace', fontSize:'20px', color:'#ffffff', align:'center' }
     ).setOrigin(0.5).setDepth(1000);
 
@@ -652,22 +648,14 @@ const Game = {
     const body = scene.add.text(
       Config.WIDTH/2, 180,
       paragraph,
-      {
-        fontFamily:'"Press Start 2P", monospace',
-        fontSize:'12px',
-        color:'#ffffff',
-        align:'center',
-        wordWrap:{ width: Config.WIDTH - 120 }
-      }
+      { fontFamily:'"Press Start 2P", monospace', fontSize:'12px', color:'#ffffff', align:'center', wordWrap:{ width: Config.WIDTH - 120 } }
     ).setOrigin(0.5,0).setDepth(1000);
 
     const prompt = scene.add.text(
-      Config.WIDTH/2, Config.HEIGHT - 80,
-      'Press R to replay',
+      Config.WIDTH/2, Config.HEIGHT - 80, 'Press R to replay',
       { fontFamily:'"Press Start 2P", monospace', fontSize:'14px', color:'#ffffff' }
     ).setOrigin(0.5).setDepth(1000).setAlpha(0);
 
-    // Wait 10s, then fade-in prompt and enable R
     scene.time.delayedCall(10000, () => {
       scene.tweens.add({ targets: prompt, alpha: 1, duration: 300 });
       scene.tweens.add({ targets: prompt, alpha: { from: 1, to: 0.7 }, yoyo: true, repeat: -1, duration: 800 });
@@ -699,9 +687,73 @@ const Game = {
 };
 
 /* =========================
-   Boot
+   Scenes
 ========================= */
-Game.start();
+class IntroScene extends Phaser.Scene{
+  constructor(){ super('Intro'); }
+  create(){
+    this.cameras.main.setBackgroundColor('#1b0b2e');
+    // Background: purple gradient + stars + faint icons
+    const g = this.add.graphics();
+    const top=Phaser.Display.Color.HexStringToColor('#6f2dbd').color;
+    const bot=Phaser.Display.Color.HexStringToColor('#1b0b2e').color;
+    const bands=24, bh=Math.ceil(Config.HEIGHT/bands);
+    for(let i=0;i<bands;i++){ const col=lerpColorInt(top,bot,i/(bands-1)); g.fillStyle(col,1).fillRect(0,i*bh,Config.WIDTH,bh); }
+    for(let s=0;s<120;s++){ const sx=Phaser.Math.Between(6,Config.WIDTH-6), sy=Phaser.Math.Between(6,Config.HEIGHT-6), a=Phaser.Math.FloatBetween(0.5,1); g.fillStyle(0xffffff,a).fillRect(sx,sy,2,2); }
+    const icons = this.add.graphics();
+    const drawShield = (x,y)=>{ icons.fillStyle(0xffffff,0.12).fillRect(x,y,10,2).fillRect(x+1,y+2,8,6).fillRect(x+2,y+8,6,4).fillRect(x+3,y+12,4,3); };
+    const drawHouse = (x,y)=>{ icons.fillStyle(0xffffff,0.12).fillRect(x+4,y,8,4).fillRect(x,y+4,16,12).fillRect(x+6,y+8,4,8); };
+    const drawHeart = (x,y)=>{ icons.fillStyle(0xffffff,0.12).fillRect(x+2,y,4,4).fillRect(x+8,y,4,4).fillRect(x,y+4,16,4).fillRect(x+2,y+8,12,4).fillRect(x+4,y+12,8,4).fillRect(x+6,y+16,4,4); };
+    const drawCoin  = (x,y)=>{ icons.fillStyle(0xffffff,0.12).fillRect(x+1,y,14,2).fillRect(x,y+2,16,12).fillRect(x+1,y+14,14,2); };
+    for(let y=40;y<Config.HEIGHT;y+=60){ for(let x=40;x<Config.WIDTH;x+=80){ const r=(x+y)%4; if(r===0) drawShield(x,y); else if(r===1) drawHouse(x,y); else if(r===2) drawHeart(x,y); else drawCoin(x,y); } }
+    this.add.renderTexture(0,0,Config.WIDTH,Config.HEIGHT).draw(icons,0,0); icons.destroy();
+
+    // Title centered (with drop shadow)
+    const titleText = 'Policy Hero';
+    const titleShadow = this.add.text(Config.WIDTH/2+3, 36+3, titleText,
+      { fontFamily:'"Press Start 2P", monospace', fontSize:'36px', color:'#000000' })
+      .setOrigin(0.5,0).setAlpha(0.35);
+    const title = this.add.text(Config.WIDTH/2, 36, titleText,
+      { fontFamily:'"Press Start 2P", monospace', fontSize:'36px', color:'#ffffff' })
+      .setOrigin(0.5,0);
+
+    // Prompt centered + animated
+    const prompt = this.add.text(Config.WIDTH/2, Config.HEIGHT - 120, 'Press SPACE to play',
+      { fontFamily:'"Press Start 2P", monospace', fontSize:'14px', color:'#ffffff' }).setOrigin(0.5);
+    this.tweens.add({ targets: prompt, y:{from:prompt.y,to:prompt.y-10}, alpha:{from:1,to:0.6}, duration:900, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
+
+    // Start PlayScene on SPACE
+    this.input.keyboard.once('keydown-SPACE', ()=>{
+      this.cameras.main.fadeOut(300,0,0,0);
+      this.time.delayedCall(320, ()=> this.scene.start('Play'));
+    });
+  }
+}
+
+class PlayScene extends Phaser.Scene{
+  constructor(){ super('Play'); }
+  create(){ Game.create(this); }
+  update(t,d){ Game.update(t,d); }
+}
+
+/* =========================
+   Boot Phaser
+========================= */
+window.addEventListener('load', ()=>{
+  new Phaser.Game({
+    type: Phaser.AUTO,
+    parent: 'game',
+    width: Config.WIDTH,
+    height: Config.HEIGHT,
+    pixelArt: true,
+    physics: { default:'arcade', arcade:{ gravity:{y:0}, debug:false } },
+    scene: [IntroScene, PlayScene]
+  });
+});
+
+/* =========================
+   (End of IIFE)
+========================= */
 })();
 </script>
 </body>
