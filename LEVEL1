@@ -1,1 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Home Insurance Defense — Level 1</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet"/>
+<style>
+  html,body{margin:0;height:100%;background:#0e0f12}
+  #game{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+  canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+  .legend{position:fixed;left:8px;bottom:8px;font-family:"Press Start 2P",monospace;font-size:10px;color:#cfe6ff;opacity:.9;background:rgba(0,0,0,.35);padding:6px 8px;border:1px solid #2a3240;border-radius:6px}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.0/dist/phaser.min.js"></script>
+</head>
+<body>
+<div id="game"></div>
+<div class="legend">← → move | ↑ ↓ stairs (near) | A action/shoot | R restart</div>
+
+<script>
+(() => {
+// =========================
+// Config & constants
+// =========================
+const Config = {
+  WIDTH: 960, HEIGHT: 540,
+  HOUSE_X: 200, HOUSE_Y: 120, HOUSE_W: 560, HOUSE_H: 320,
+  PLAYER_SPEED: 160, BULLET_SPEED: 380,
+  ENEMY_BASE_SPEED: 34, ENEMY_STRONG_SPEED: 52,
+  HOUSE_MAX_HP: 100,
+  PREP_SECONDS: 20, REST_SECONDS: 10,
+  COLORS: {
+    bg:'#0e0f12', ground:0x101613, houseFill:0x1b1e24, houseStroke:0x4c566a,
+    barBg:0x2e3440, houseBar:'#a3be8c', insBar:'#81a1c1', countdown:'#ff5c66',
+    door:0x6b8fb1, win:0x91d0e0, stove:0x3b4252, chest:0xd08770, stairs:0x2e3440
+  }
+};
+Config.GROUND_Y = Config.HOUSE_Y + Config.HOUSE_H - 6;
+Config.UPPER_FLOOR_Y = Config.HOUSE_Y + Math.floor(Config.HOUSE_H / 2);
+const FLOOR_Y = { ground: Config.GROUND_Y, upper: Config.UPPER_FLOOR_Y };
+const STATES = { REST:'rest', PREP:'prep', PLAY:'play', BLAST:'blast', OVER:'over', COMPLETE:'complete' };
+const SIZES = { DOOR_W:44, DOOR_H:98, WIN_W:60, WIN_H:50, STOVE_W:42, STOVE_H:30, CHEST_W:42, CHEST_H:40 };
+const ZONES = {
+  LEFT_DOOR:    { left: Config.HOUSE_X,                        w: SIZES.DOOR_W, floor:'ground', label:'[A] Lock door' },
+  RIGHT_WINDOW: { left: Config.HOUSE_X + Config.HOUSE_W - SIZES.WIN_W, w: SIZES.WIN_W, floor:'ground', label:'[A] Lock window' },
+  STOVE:        { left: Config.HOUSE_X + Math.floor((Config.HOUSE_W - SIZES.STOVE_W)/2) - 70, w: SIZES.STOVE_W, floor:'ground', label:'[A] Turn off stove' },
+  GUN_CHEST:    { left: Config.HOUSE_X + Math.floor((Config.HOUSE_W - SIZES.CHEST_W)/2) + 70, w: SIZES.CHEST_W, floor:'upper', label:'[A] Equip gun' },
+  STAIRS:       { left: Config.HOUSE_X + Math.floor((Config.HOUSE_W - 120)/2), w: 120, floor:'ground', label:'Stairs' }
+};
+const PLAYER_MIN_X = Config.HOUSE_X + 6;
+const PLAYER_MAX_X = Config.HOUSE_X + Config.HOUSE_W - 6;
+const px = n => Math.round(n);
+
+// =========================
+// Tiny SFX (beeps)
+// =========================
+const Audio = (()=> {
+  const Ctx = window.AudioContext || window.webkitAudioContext; let ctx; try{ ctx=new Ctx(); }catch{ ctx=null; }
+  function tone({freq=440,dur=.12,type='sine',gain=.08,attack=.005,release=.05}={}) {
+    if(!ctx) return; const o=ctx.createOscillator(), g=ctx.createGain(); o.type=type; o.frequency.value=freq; g.gain.value=0.00001;
+    o.connect(g); g.connect(ctx.destination); const t=ctx.currentTime;
+    g.gain.exponentialRampToValueAtTime(gain,t+attack);
+    g.gain.exponentialRampToValueAtTime(0.00001,t+attack+dur+release);
+    o.start(t); o.stop(t+attack+dur+release+0.02);
+  }
+  return {
+    countdown(){ tone({freq:740,dur:.06,type:'square',gain:.06}); },
+    task(){ tone({freq:880,dur:.12,type:'triangle',gain:.08}); },
+    wave(){ tone({freq:220,dur:.18,type:'sawtooth',gain:.08}); },
+    damage(){ tone({freq:140,dur:.08,type:'square',gain:.09}); },
+    blast(){ tone({freq:330,dur:.35,type:'sawtooth',gain:.10}); setTimeout(()=>tone({freq:660,dur:.25,type:'triangle',gain:.08}),120); }
+  };
+})();
+
+// =========================
+// Generated textures (polished sprites & VFX)
+// =========================
+function makeGeneratedTextures(scene){
+  // --- Player: crisper 8-bit mini (14x28), belt + sleeves, 3-frame walk ---
+  const mkP = (offsetL=0, offsetR=0)=>{
+    const g = scene.add.graphics();
+    // Hair & face
+    g.fillStyle(0x3b4252,1).fillRect(3,0,8,2);
+    g.fillStyle(0xeceff4,1).fillRect(4,2,6,5);
+    // Shirt (red), neck
+    g.fillStyle(0xd24d57,1).fillRect(2,7,10,6);
+    g.fillStyle(0xeceff4,1).fillRect(6,7,2,1);
+    // Belt
+    g.fillStyle(0x88c0d0,1).fillRect(4,13,6,2);
+    // Pants (brown-ish)
+    g.fillStyle(0x6b4c2e,1).fillRect(3,15,8,8);
+    // Step offsets
+    if (offsetL) g.fillRect(1,16,6,7);
+    if (offsetR) g.fillRect(7,16,6,7);
+    // Shoes
+    g.fillStyle(0x8b5a2b,1).fillRect(2,23,4,3).fillRect(8,23,4,3);
+    const rt=scene.add.renderTexture(0,0,14,28).draw(g,0,0);
+    return rt;
+  };
+  mkP(0,0).saveTexture('player_idle');
+  mkP(1,0).saveTexture('player_walk1');
+  mkP(0,1).saveTexture('player_walk2');
+
+  // --- Enemy: striped burglar (18x22) ---
+  const e = scene.add.graphics();
+  e.fillStyle(0x1a1c22,1).fillRect(0,0,18,22);       // body base
+  for (let y=4;y<=18;y+=4) e.fillStyle(0xffffff,1).fillRect(0,y,18,2); // stripes
+  e.fillStyle(0x000000,1).fillRect(2,6,14,4);        // mask band
+  e.fillStyle(0xeceff4,1).fillRect(4,7,3,2).fillRect(11,7,3,2); // eyes
+  scene.add.renderTexture(0,0,18,22).draw(e,0,0).saveTexture('enemy'); e.destroy();
+
+  // --- Bullet ---
+  const b = scene.add.graphics();
+  b.fillStyle(0xebcb8b,1).fillRect(0,0,6,2);
+  scene.add.renderTexture(0,0,6,2).draw(b,0,0).saveTexture('bullet'); b.destroy();
+
+  // --- Muzzle flash (tiny plus) ---
+  const mf = scene.add.graphics();
+  mf.fillStyle(0xfff2a8,1).fillRect(0,0,3,3);
+  mf.fillStyle(0xffdd66,1).fillRect(1,-1,1,5).fillRect(-1,1,5,1);
+  scene.add.renderTexture(0,0,3,3).draw(mf,0,0).saveTexture('muzzle'); mf.destroy();
+
+  // --- Soft circle shadow (under actors) ---
+  const sh = scene.add.graphics();
+  sh.fillStyle(0x000000,0.25).fillEllipse(0,0,14,4);
+  scene.add.renderTexture(0,0,16,8).draw(sh,8,4).saveTexture('shadow'); sh.destroy();
+}
+
+// =========================
+// UI (HUD + tooltips)
+// =========================
+const UI = {
+  init(scene){
+    // Countdown (big red, top-center)
+    this.countdownText = scene.add.text(Config.WIDTH/2, 24, '', {
+      fontFamily:'"Press Start 2P", monospace', fontSize:'28px', color: Config.COLORS.countdown
+    }).setOrigin(0.5,0).setStroke('#000000',4);
+
+    // Tasks (left)
+    this.taskBG = scene.add.rectangle(16, 112, 320, 110, 0xffffff, 0.05).setOrigin(0,0).setStrokeStyle(1,0x2a3240,1);
+    this.taskText = scene.add.text(24, 120, '', {
+      fontFamily:'"Press Start 2P", monospace', fontSize:'10px', color:'#cfe6ff'
+    }).setOrigin(0,0).setStroke('#000000',2);
+
+    // Bars (right)
+    const bx = Config.WIDTH - 360, by = 120;
+    this.houseBar = this.makeBar(scene, bx, by, 300, 12, Config.COLORS.houseBar, 'House');
+    this.insBar   = this.makeBar(scene, bx, by+22, 300, 12, Config.COLORS.insBar, 'Insurance');
+    this.setBar(this.houseBar, 100, 'House');
+    this.setBar(this.insBar,   0,   'Insurance');
+
+    // Wave label (top-right)
+    this.waveText = scene.add.text(Config.WIDTH-10, 18, '', {
+      fontFamily:'"Press Start 2P", monospace', fontSize:'10px', color:'#e5e9f0'
+    }).setOrigin(1,0).setStroke('#000000',3);
+
+    // Tooltips at zones during prep
+    this.tooltips = [];
+    const tip = (x,y,text)=>{
+      const glow = scene.add.rectangle(x, y, 120, 20, 0xffffff, 0.10).setOrigin(0.5);
+      scene.tweens.add({ targets: glow, alpha: 0.3, yoyo:true, repeat:-1, duration:700 });
+      const t = scene.add.text(x, y, text, { fontFamily:'"Press Start 2P", monospace', fontSize:'9px', color:'#fff' }).setOrigin(0.5);
+      this.tooltips.push({glow, tip:t});
+    };
+    tip(ZONES.LEFT_DOOR.left + SIZES.DOOR_W/2, FLOOR_Y.ground - SIZES.DOOR_H - 10, '[A] Lock door');
+    tip(ZONES.RIGHT_WINDOW.left + SIZES.WIN_W/2, FLOOR_Y.ground - SIZES.WIN_H - 10, '[A] Lock window');
+    tip(ZONES.STOVE.left + SIZES.STOVE_W/2, FLOOR_Y.ground - SIZES.STOVE_H - 10, '[A] Turn off stove');
+    tip(ZONES.GUN_CHEST.left + SIZES.CHEST_W/2, FLOOR_Y.upper - SIZES.CHEST_H - 10, '[A] Equip gun');
+    this.setPrepIndicators(false);
+  },
+  makeBar(scene,x,y,w,h,colorHex,label){
+    const bg = scene.add.rectangle(x,y,w,h,Config.COLORS.barBg).setOrigin(0,0);
+    const fg = scene.add.rectangle(x,y,w,h,Phaser.Display.Color.HexStringToColor(colorHex).color).setOrigin(0,0);
+    const tx = scene.add.text(x + w - 6, y - 12, `${label}: 100%`, {
+      fontFamily:'"Press Start 2P", monospace', fontSize:'10px', color:'#e5e9f0'
+    }).setOrigin(1,0);
+    return { bg, fg, tx, w, x, y, h };
+  },
+  setBar(bar, pct, label){
+    const v = Math.max(0, Math.min(100, pct));
+    bar.fg.width = bar.w * (v/100);
+    bar.tx.setText(`${label}: ${v|0}%`);
+    bar.tx.x = bar.x + bar.w - 6;
+  },
+  setCountdown(template, seconds, onDone){
+    const sc = this.countdownText.scene;
+    const tick = () => {
+      this.countdownText.setText(template.replace('{s}', seconds));
+      Audio.countdown();
+      seconds--;
+      if (seconds < 0) { this.countdownText.setText(''); onDone && onDone(); return; }
+      sc.time.delayedCall(1000, tick);
+    };
+    tick();
+  },
+  setWave(n){ this.waveText.setText(`Wave ${n}`); },
+  setTasksText(t){ this.taskText.setText(t); },
+  setPrepIndicators(v){ (this.tooltips||[]).forEach(({glow,tip})=>{ glow.setVisible(v); tip.setVisible(v); }); },
+  flashTask(){
+    const scene = this.taskText.scene;
+    this.taskBG.setFillStyle(0xa3be8c, 0.15);
+    this.taskText.setTint(0xffffff);
+    this.taskText.setShadow(1,1,'#a3be8c',0,true,true);
+    scene.tweens.add({
+      targets:[this.taskBG], alpha:{from:0.15,to:0.05}, duration:320, yoyo:true,
+      onComplete:()=>{ this.taskBG.setFillStyle(0xffffff,0.05); this.taskText.clearTint(); this.taskText.setShadow(0,0,'#000',0); }
+    });
+  }
+};
+
+// =========================
+// Tasks
+// =========================
+const Tasks = {
+  state:{ stove:false, leftDoor:false, rightWindow:false, gun:false },
+  text(){ return ['Turn OFF stove','Lock LEFT door','Lock RIGHT window','Equip Mystery Gun'].join('\n'); },
+  near(player, Z){ return player.y === FLOOR_Y[Z.floor]-14 && (player.x >= Z.left && player.x <= Z.left + Z.w); },
+  tryComplete(scene, player){
+    if (!this.state.stove && this.near(player, ZONES.STOVE))       { this.state.stove = true; UI.setTasksText(this.text()); UI.flashTask(); Audio.task(); return; }
+    if (!this.state.leftDoor && this.near(player, ZONES.LEFT_DOOR)) { this.state.leftDoor = true; UI.setTasksText(this.text()); UI.flashTask(); Audio.task(); return; }
+    if (!this.state.rightWindow && this.near(player, ZONES.RIGHT_WINDOW)) { this.state.rightWindow = true; UI.setTasksText(this.text()); UI.flashTask(); Audio.task(); return; }
+    if (!this.state.gun && this.near(player, ZONES.GUN_CHEST))     { this.state.gun = true; Game.hasGun = true; UI.setTasksText(this.text()); UI.flashTask(); Audio.task(); return; }
+  }
+};
+
+// =========================
+/* Entities */
+// =========================
+const Entities = {
+  makePlayer(scene){
+    const p = scene.physics.add.sprite(px(Config.HOUSE_X + Config.HOUSE_W/2), FLOOR_Y.ground - 14, 'player_idle');
+    p.body.setSize(14,28);
+    if (!scene.anims.exists('p_walk')){
+      scene.anims.create({ key:'p_walk', frames:[{key:'player_walk1'},{key:'player_idle'},{key:'player_walk2'},{key:'player_idle'}], frameRate:8, repeat:-1 });
+    }
+    return p;
+  },
+  makeEnemy(scene, x, y){
+    const e = scene.physics.add.sprite(x, y, 'enemy'); e.setDepth(2); return e;
+  }
+};
+
+// =========================
+// Waves
+// =========================
+const Waves = {
+  number:1, inProgress:false,
+  start(scene){
+    if (this.inProgress || Game.state !== STATES.PLAY) return;
+    this.inProgress = true; UI.setWave(this.number);
+    const n = Math.min(1 + this.number, 8);
+    for (let i=0;i<n;i++){
+      const side = Math.random()<0.5?'left':'right';
+      const speed = (i%3===0)? Config.ENEMY_STRONG_SPEED : Config.ENEMY_BASE_SPEED + Math.random()*16;
+      const hp = (i%3===0)?3:2;
+      this.spawn(scene, side, speed, hp);
+    }
+    scene.time.addEvent({ delay: 400, loop:true, callback: ()=>{
+      if (Game.state===STATES.PLAY && Game.enemies.countActive(true)===0){
+        this.inProgress = false; this.number++; Game.startRest('between');
+      }
+    }});
+  },
+  spawn(scene, side, speed, hp){
+    const y = FLOOR_Y.ground; const x = side==='left' ? -40 : Config.WIDTH + 40;
+    const e = Entities.makeEnemy(scene, x, y); e.side=side; e.speed=speed; e.hp=hp; Game.enemies.add(e);
+  }
+};
+
+// =========================
+// Combat (aim assist + VFX)
+// =========================
+const Combat = {
+  shoot(scene){
+    if (!Game.hasGun) return;
+    const p = Game.player;
+    const leftWin  = p.y === FLOOR_Y.upper - 14 && p.x < (Config.HOUSE_X + Config.HOUSE_W/2 - 80);
+    const rightWin = p.y === FLOOR_Y.upper - 14 && p.x > (Config.HOUSE_X + Config.HOUSE_W/2 + 80);
+    if (!(leftWin || rightWin)) return;
+
+    let target=null; const list=Game.enemies.getChildren();
+    if (list.length){
+      const filter = leftWin ? (e)=> e.x < p.x : (e)=> e.x > p.x;
+      const cands = list.filter(filter);
+      if (cands.length) target = cands.reduce((a,b)=> (Math.abs(b.x-p.x) < Math.abs(a.x-p.x) ? b : a));
+    }
+
+    const speed = Config.BULLET_SPEED; let vx,vy;
+    if (target){ const sx=p.x, sy=p.y-10, dx=target.x-sx, dy=target.y-sy, L=Math.hypot(dx,dy)||1; vx=(dx/L)*speed; vy=(dy/L)*speed; }
+    else { const dir=leftWin?-1:1; vx=dir*speed; vy=0; }
+
+    const b = Game.bullets.create(p.x, p.y-10, 'bullet'); b.body.allowGravity=false; b.setVelocity(vx,vy);
+    scene.time.delayedCall(1500, ()=> b.destroy());
+
+    // Muzzle flash sprite that fades quickly
+    const mf = scene.add.image(p.x + (vx>0?6:-6), p.y - 10, 'muzzle').setScale(1.2);
+    scene.tweens.add({ targets: mf, alpha: {from:1,to:0}, duration:120, onComplete:()=>mf.destroy() });
+
+    // Simple trail: a few fading dots along the first 150ms
+    const steps = 4; const ix = vx/steps*0.15, iy = vy/steps*0.15;
+    let tx = p.x, ty = p.y - 10;
+    for (let i=0;i<steps;i++){
+      scene.time.delayedCall(i*30, ()=>{
+        tx += ix; ty += iy;
+        const dot = scene.add.rectangle(tx, ty, 2, 2, 0xffe9a3, 1);
+        scene.tweens.add({ targets: dot, alpha:{from:1,to:0}, duration:180, onComplete:()=>dot.destroy() });
+      });
+    }
+  }
+};
+
+// =========================
+// Effects (insurance blast)
+// =========================
+const Effects = {
+  shock:{ active:false, r:0, maxR:0, gfx:null },
+  trigger(scene){
+    Game.state = STATES.BLAST; Game.insurancePct = 100; UI.setBar(UI.insBar, Game.insurancePct, 'Insurance');
+    const s=this.shock; s.active=true; s.r=0; s.maxR=Math.hypot(Config.WIDTH,Config.HEIGHT); s.gfx&&s.gfx.destroy(); s.gfx=scene.add.graphics({x:0,y:0});
+    const cx = Config.HOUSE_X + Config.HOUSE_W/2, cy = Config.HOUSE_Y + Config.HOUSE_H/2;
+    const expand = ()=>{
+      if (!s.active) return;
+      s.r += 28; s.gfx.clear(); s.gfx.lineStyle(6, 0xa3be8c, 0.9).strokeCircle(px(cx), px(cy), px(s.r));
+      Game.enemies.getChildren().forEach(e=>{ const d=Phaser.Math.Distance.Between(e.x,e.y,cx,cy); if (d<=s.r) e.destroy(); });
+      if (s.r < s.maxR) scene.time.delayedCall(16, expand);
+    };
+    expand();
+    scene.time.delayedCall(3000, ()=>{ s.active=false; s.gfx&&s.gfx.destroy(); Game.state=STATES.COMPLETE; Game.endLevelText(scene); });
+  }
+};
+
+// =========================
+// House drawing (polished visuals)
+// =========================
+function drawHouse(scene){
+  const g=scene.add.graphics();
+
+  // Subtle banded sky for retro vibe
+  for (let i=0;i<8;i++){
+    const tone = 0x0e0f12 + i*0x010101;
+    g.fillStyle(tone,1).fillRect(0, i*68, Config.WIDTH, 68);
+  }
+
+  // Ground
+  g.fillStyle(Config.COLORS.ground,1).fillRect(0, Config.GROUND_Y+2, Config.WIDTH, Config.HEIGHT - (Config.GROUND_Y+2));
+
+  // House body
+  g.lineStyle(4, Config.COLORS.houseStroke, 1);
+  g.fillStyle(Config.COLORS.houseFill, 1);
+  g.fillRect(Config.HOUSE_X, Config.HOUSE_Y, Config.HOUSE_W, Config.HOUSE_H);
+  g.strokeRect(Config.HOUSE_X, Config.HOUSE_Y, Config.HOUSE_W, Config.HOUSE_H);
+
+  // Big roof + small chimney
+  const roofH = 56;
+  g.fillStyle(0x313743,1).beginPath();
+  g.moveTo(Config.HOUSE_X-6, Config.HOUSE_Y);
+  g.lineTo(Config.HOUSE_X + Config.HOUSE_W + 6, Config.HOUSE_Y);
+  g.lineTo(Config.HOUSE_X + Config.HOUSE_W/2, Config.HOUSE_Y - roofH);
+  g.closePath(); g.fillPath(); g.lineStyle(3,0x262b34,1).strokePath();
+  g.fillStyle(0x2a303b,1).fillRect(Config.HOUSE_X + Config.HOUSE_W - 84, Config.HOUSE_Y - roofH + 12, 18, 34);
+
+  // Brick dots for texture
+  g.fillStyle(0x232833,1);
+  for (let y=Config.HOUSE_Y+14; y<Config.HOUSE_Y+Config.HOUSE_H; y+=22){
+    for (let x=Config.HOUSE_X+12; x<Config.HOUSE_X+Config.HOUSE_W-12; x+=28){ g.fillRect(x,y,6,2); }
+  }
+
+  // Floor divider
+  g.lineStyle(2, 0x2e3440, 1).lineBetween(Config.HOUSE_X, Config.UPPER_FLOOR_Y, Config.HOUSE_X + Config.HOUSE_W, Config.UPPER_FLOOR_Y);
+
+  // Stairs column (center)
+  const stairLeft = ZONES.STAIRS.left + Math.floor((ZONES.STAIRS.w - 20)/2);
+  g.fillStyle(Config.COLORS.stairs,1).fillRect(stairLeft, Config.UPPER_FLOOR_Y, 20, (Config.GROUND_Y - Config.UPPER_FLOOR_Y));
+
+  // Props blocks (flush/sitting on floors)
+  drawBlock(scene, ZONES.LEFT_DOOR.left, FLOOR_Y.ground, SIZES.DOOR_W, SIZES.DOOR_H, Config.COLORS.door);   // door (flush left wall)
+  drawBlock(scene, ZONES.RIGHT_WINDOW.left, FLOOR_Y.ground, SIZES.WIN_W, SIZES.WIN_H, Config.COLORS.win);   // window (flush right wall)
+  // window cross
+  g.lineStyle(1,0x2e3440,1)
+   .lineBetween(ZONES.RIGHT_WINDOW.left, FLOOR_Y.ground - Math.floor(SIZES.WIN_H/2), ZONES.RIGHT_WINDOW.left + SIZES.WIN_W, FLOOR_Y.ground - Math.floor(SIZES.WIN_H/2))
+   .lineBetween(ZONES.RIGHT_WINDOW.left + Math.floor(SIZES.WIN_W/2), FLOOR_Y.ground - SIZES.WIN_H, ZONES.RIGHT_WINDOW.left + Math.floor(SIZES.WIN_W/2), FLOOR_Y.ground);
+
+  drawBlock(scene, ZONES.STOVE.left, FLOOR_Y.ground, SIZES.STOVE_W, SIZES.STOVE_H, Config.COLORS.stove);    // stove (on ground)
+  drawBlock(scene, ZONES.GUN_CHEST.left, FLOOR_Y.upper, SIZES.CHEST_W, SIZES.CHEST_H, Config.COLORS.chest); // chest (upstairs)
+}
+function drawBlock(scene,leftX,baselineY,w,h,color){
+  const gg=scene.add.graphics();
+  gg.fillStyle(color,1).fillRect(px(leftX), px(baselineY-h), px(w), px(h));
+  gg.lineStyle(2,0x2e3440,1).strokeRect(px(leftX), px(baselineY-h), px(w), px(h));
+  return gg;
+}
+
+// =========================
+// Game (scene glue)
+// =========================
+const Game = {
+  scene:null, state:STATES.REST, restMode:'intro', restTime:Config.REST_SECONDS,
+  player:null, playerShadow:null, bullets:null, enemies:null, hasGun:false,
+  houseHP:Config.HOUSE_MAX_HP, insurancePct:0, _hitGfx:null,
+
+  start(){
+    const scene=new Phaser.Scene('Game'); this.scene=scene;
+
+    scene.preload = function(){};
+
+    scene.create = () => {
+      scene.cameras.main.setBackgroundColor(Config.COLORS.bg);
+      makeGeneratedTextures(scene);
+      drawHouse(scene);
+
+      // Entities & groups
+      this.player  = Entities.makePlayer(scene);
+      this.playerShadow = scene.add.image(this.player.x, this.player.y + 16, 'shadow').setDepth(0.5);
+      this.bullets = scene.physics.add.group();
+      this.enemies = scene.physics.add.group();
+      scene.physics.add.overlap(this.bullets, this.enemies, (b,e)=>{ b.destroy(); e.hp -= 1; if (e.hp<=0) e.destroy(); });
+
+      // Input
+      this.cursors = scene.input.keyboard.createCursorKeys();
+      this.keyA = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+      this.keyA.on('down', ()=>{ if (this.state===STATES.PREP) Tasks.tryComplete(scene, this.player); else if (this.state===STATES.PLAY) Combat.shoot(scene); });
+      scene.input.keyboard.on('keydown-R', ()=> scene.scene.restart());
+
+      // UI
+      UI.init(scene); UI.setTasksText(Tasks.text());
+
+      // Flow
+      this.startRest('intro');
+    };
+
+    scene.update = (time, delta) => {
+      if (this.state===STATES.OVER || this.state===STATES.COMPLETE) return;
+      // movement
+      const p=this.player, c=this.cursors; p.body.setVelocity(0);
+      if (c.left.isDown) { p.body.setVelocityX(-Config.PLAYER_SPEED); p.setFlipX(true); }
+      else if (c.right.isDown) { p.body.setVelocityX(Config.PLAYER_SPEED); p.setFlipX(false); }
+      p.x = Math.max(PLAYER_MIN_X, Math.min(PLAYER_MAX_X, p.x));
+      // anims
+      if (p.body.velocity.x !== 0) p.anims.play('p_walk', true);
+      else { p.anims.stop(); p.setTexture('player_idle'); }
+      // stairs-only floor switch
+      const near = Math.abs(p.x - (ZONES.STAIRS.left + ZONES.STAIRS.w/2)) <= ZONES.STAIRS.w/2;
+      if (near){ if (c.up.isDown) p.y = FLOOR_Y.upper - 14; else if (c.down.isDown) p.y = FLOOR_Y.ground - 14; }
+
+      // shadow follows floor
+      if (this.playerShadow){
+        this.playerShadow.x = p.x;
+        this.playerShadow.y = (p.y === FLOOR_Y.upper - 14) ? (FLOOR_Y.upper + 2) : (FLOOR_Y.ground + 2);
+      }
+
+      // enemies
+      if (this.state===STATES.PLAY){
+        this.enemies.getChildren().forEach(e=>{
+          const tx = e.side==='left' ? Config.HOUSE_X : Config.HOUSE_X + Config.HOUSE_W;
+          const dir = Math.sign(tx - e.x);
+          if (Math.abs(e.x - tx) < 4){
+            if (!e._tick || time - e._tick > 800){ const dmg=(e.hp>=3?3:2); Audio.damage(); this.damageHouse(dmg); e._tick=time; }
+          } else { e.x += dir * e.speed * (delta/1000); }
+        });
+      }
+    };
+
+    new Phaser.Game({
+      type: Phaser.AUTO, parent:'game', width:Config.WIDTH, height:Config.HEIGHT,
+      pixelArt:true,
+      physics:{ default:'arcade', arcade:{ gravity:{y:0}, debug:false } },
+      scene
+    });
+  },
+
+  setCountdown(t,s,d){ UI.setCountdown(t,s,d); },
+  startRest(mode){
+    this.state=STATES.REST; this.restMode=mode; this.restTime=Config.REST_SECONDS;
+    UI.setTasksText(''); UI.setPrepIndicators(false);
+    const msg = mode==='intro' ? 'Get oriented' : 'Resting... next wave';
+    this.setCountdown(`${msg} — {s}s`, this.restTime, ()=>{
+      if (mode==='intro') this.startPrep();
+      else if (mode==='between' && this.state!==STATES.COMPLETE){ this.state=STATES.PLAY; Audio.wave(); Waves.start(this.scene); }
+    });
+  },
+  startPrep(){ this.state=STATES.PREP; UI.setTasksText(Tasks.text()); UI.setPrepIndicators(true); this.setCountdown('PREP — {s}s', Config.PREP_SECONDS, ()=> this.endPrep()); },
+  endPrep(){
+    UI.setPrepIndicators(false);
+    if (!Tasks.state.stove){ Audio.damage(); this.gameOver('House fire! You forgot the stove.\nPress R to retry.'); this.state=STATES.OVER; return; }
+    this.state=STATES.PLAY; Audio.wave(); Waves.start(this.scene);
+  },
+  endLevelText(scene){
+    scene.add.text(Config.WIDTH/2, Config.HEIGHT/2, 'LEVEL COMPLETE!\nInsurance repaired the damage.\nPress R to replay.', {
+      fontFamily:'"Press Start 2P", monospace', fontSize:'14px', color:'#e5e9f0', align:'center', wordWrap:{ width: Config.WIDTH-80 }
+    }).setOrigin(0.5);
+    scene.input.keyboard.once('keydown-R', ()=> scene.scene.restart());
+  },
+  gameOver(t){
+    const s=this.scene;
+    s.add.text(Config.WIDTH/2, Config.HEIGHT/2, t, {
+      fontFamily:'"Press Start 2P", monospace', fontSize:'14px', color:'#e5e9f0', align:'center', wordWrap:{ width: Config.WIDTH-80 }
+    }).setOrigin(0.5);
+    s.input.keyboard.once('keydown-R', ()=> s.scene.restart());
+  },
+  damageHouse(a){
+    this.houseHP = Math.max(0, this.houseHP - a); UI.setBar(UI.houseBar, this.houseHP, 'House');
+    this.insurancePct = Math.min(100, this.insurancePct + a); UI.setBar(UI.insBar, this.insurancePct, 'Insurance');
+
+    // Flash the house border
+    if (!this._hitGfx){ this._hitGfx = this.scene.add.graphics({ x:0, y:0 }).setDepth(999); }
+    const g = this._hitGfx; g.clear();
+    g.lineStyle(6, 0xff5c66, 1).strokeRect(Config.HOUSE_X-2, Config.HOUSE_Y-2, Config.HOUSE_W+4, Config.HOUSE_H+4);
+    this.scene.tweens.add({ targets: g, alpha: {from:1,to:0}, duration:140, onComplete:()=>{ g.clear(); g.alpha=1; }});
+
+    if (this.insurancePct>=100 && this.state===STATES.PLAY && !Effects.shock.active){ Audio.blast(); Effects.trigger(this.scene); }
+    if (this.houseHP<=0 && this.state===STATES.PLAY && this.insurancePct < 100){ this.state=STATES.OVER; this.gameOver('House destroyed! Press R to retry.'); }
+  }
+};
+
+// =========================
+// Boot
+// =========================
+function drawBlock(scene,leftX,baselineY,w,h,color){
+  const gg=scene.add.graphics();
+  gg.fillStyle(color,1).fillRect(px(leftX), px(baselineY-h), px(w), px(h));
+  gg.lineStyle(2,0x2e3440,1).strokeRect(px(leftX), px(baselineY-h), px(w), px(h));
+  return gg;
+}
+
+Game.start();
+
+})();</script>
+</body>
+</html>
 
